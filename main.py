@@ -14,7 +14,47 @@ from telegram.ext import (
 warnings = {}
 
 # List of bad words (add more as needed)
-bad_words = ["fuck", "sex", "idiot", "stupid"]
+bad_words = [
+    "fuck", "fucking", "fucked", "fucker",
+    "shit", "shitty", "crap", "damn", "dammit",
+    "bitch", "bitches",
+    "asshole", "ass", "asses",
+    "dick", "dickhead",
+    "piss", "pissed",
+    "cock", "cocksucker",
+    "cunt",
+    "bollocks",
+    "bugger",
+    "bollocks",
+    "prick",
+    "twat",
+    "wanker",
+    "arse", "arsehole",
+    "slut", "sluts",
+    "whore",
+    "nigger",  # extremely offensive, use with caution or exclude depending on context
+    "retard",  # offensive to disabled persons, best avoided
+    "douche",
+    "motherfucker", "motherfuckers",
+    "fag", "faggot",
+    "nigga",
+    "bastard",
+    "jerk",
+    "bloody",
+    "crap",
+    "hell",
+    "shithead",
+    "dumbass",
+    "jackass",
+    "knob",
+    "tit",
+    "tits",
+    "bollocks",
+    "bugger",
+    "arsehole",
+    "twat",
+]
+
 
 # /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
