@@ -164,6 +164,7 @@ class AdvancedChatBot:
 /stats - View group statistics
 /roll - Roll a dice (1-6)
 /flip - Flip a coin
+/link - Get PanguPlay website link
 
 💬 **Chat Features:**
 • Mention me (@botname) for natural conversation
@@ -451,6 +452,15 @@ class AdvancedChatBot:
         """
         await update.message.reply_text(stats_msg.strip(), parse_mode='Markdown')
 
+    async def link_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        link_msg = (
+            "🌐 **Check out PanguPlay!** 🎮\n\n"
+            "🔗 **Website**: http://purushothmathav.github.io/PanguPlay/\n\n"
+            "🎯 Your one stop destination to Tamil entertainment!\n"
+            "✨ Click the link above to explore!"
+        )
+        await update.message.reply_text(link_msg, parse_mode='Markdown')
+
     async def welcome_goodbye(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Enhanced welcome/goodbye messages"""
         result: ChatMemberUpdated = update.chat_member
@@ -505,6 +515,7 @@ class AdvancedChatBot:
         app.add_handler(CommandHandler("roll", self.roll_command))
         app.add_handler(CommandHandler("flip", self.flip_command))
         app.add_handler(CommandHandler("stats", self.stats_command))
+        app.add_handler(CommandHandler("link", self.link_command))
 
         # Message handlers - Updated order and combined
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.combined_message_handler))
