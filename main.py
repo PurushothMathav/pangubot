@@ -285,10 +285,41 @@ class AdvancedChatBot:
                 return level
         return None
 
+    async def check_bot_mention(self, message, bot_username: str) -> bool:
+        """Enhanced bot mention detection"""
+        if not message or not message.text:
+            return False
+            
+        text = message.text.lower()
+        bot_username = bot_username.lower()
+        
+        # Method 1: Check message entities for @mentions
+        if message.entities:
+            for entity in message.entities:
+                if entity.type == MessageEntity.MENTION:
+                    mention_text = message.text[entity.offset:entity.offset + entity.length].lower()
+                    if mention_text == f"@{bot_username}":
+                        return True
+        
+        # Method 2: Check if bot username appears anywhere in text
+        if f"@{bot_username}" in text:
+            return True
+            
+        # Method 3: Check if message starts with bot name
+        if text.startswith(f"@{bot_username}"):
+            return True
+            
+        return False
+
     async def smart_content_moderation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Advanced content moderation with contextual responses"""
+        """Advanced content moderation with contextual responses - only when bot is mentioned"""
         message = update.message
         if not message or not message.text:
+            return
+
+        # Only moderate when bot is mentioned
+        bot_username = (await context.bot.get_me()).username
+        if not await self.check_bot_mention(message, bot_username):
             return
 
         user_id = message.from_user.id
@@ -329,20 +360,15 @@ class AdvancedChatBot:
 
         bot_username = (await context.bot.get_me()).username.lower()
         text = message.text.lower()
+        original_text = message.text
         user_id = message.from_user.id
         user_name = message.from_user.first_name
 
-        # Check if bot is mentioned
-        mentioned = False
-        if message.entities:
-            for entity in message.entities:
-                if entity.type == MessageEntity.MENTION:
-                    mention_text = message.text[entity.offset:entity.offset + entity.length].lower()
-                    if mention_text == f"@{bot_username}":
-                        mentioned = True
-                        break
+        # Check if bot is mentioned (multiple ways)
+        bot_username = (await context.bot.get_me()).username
+        mentioned = await self.check_bot_mention(message, bot_username)
 
-        if not mentioned and f"@{bot_username}" not in text:
+        if not mentioned:
             return
 
         # Update user context
@@ -453,6 +479,14 @@ class AdvancedChatBot:
             goodbye_msg = random.choice(goodbye_messages)
             await update.effective_chat.send_message(goodbye_msg, parse_mode='HTML')
 
+    async def combined_message_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Combined handler for moderation and conversation"""
+        # First check for moderation (if bot is mentioned with bad words)
+        await self.smart_content_moderation(update, context)
+        
+        # Then handle natural conversation (if bot is mentioned)
+        await self.natural_conversation(update, context)
+
     def setup_handlers(self, app):
         """Setup all command and message handlers"""
         # Command handlers
@@ -472,8 +506,8 @@ class AdvancedChatBot:
         app.add_handler(CommandHandler("flip", self.flip_command))
         app.add_handler(CommandHandler("stats", self.stats_command))
 
-        # Message handlers
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.natural_conversation))
+        # Message handlers - Updated order and combined
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.combined_message_handler))
 
         # Chat member updates
         app.add_handler(ChatMemberHandler(self.welcome_goodbye, ChatMemberHandler.CHAT_MEMBER))
