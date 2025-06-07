@@ -57,7 +57,7 @@ async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Reply to a user's message to unban them.")
 
-# Detect bad words only if bot is mentioned
+# Detect bad words and auto-warn only if bot is mentioned
 async def detect_bad_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     if not message or not message.text:
@@ -81,7 +81,15 @@ async def detect_bad_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = message.text.lower()
     if any(bad_word in text for bad_word in bad_words):
-        await message.reply_text("🚫 Please avoid using bad language!")
+        user_id = message.from_user.id
+        warnings[user_id] = warnings.get(user_id, 0) + 1
+        count = warnings[user_id]
+
+        await message.reply_text(f"🚫 Please avoid using bad language! Warning {count}/3")
+
+        if count >= 3:
+            await update.effective_chat.ban_member(user_id)
+            await message.reply_text("User has been auto-banned after 3 warnings 🚫")
     else:
         await message.reply_text(f"You mentioned me and said: {message.text}")
 
