@@ -167,7 +167,7 @@ class AdvancedChatBot:
 /link - Get PanguPlay website link
 
 💬 **Chat Features:**
-• Mention me (@botname) for natural conversation
+• Mention me (@PangusBot) for natural conversation
 • I respond to greetings, questions, and emotions
 • Auto-moderation for inappropriate content
 
@@ -458,26 +458,36 @@ class AdvancedChatBot:
         link_msg = (
             "🌐 **Check out PanguPlay!** 🎮\n\n"
             "🔗 **Website**: http://purushothmathav.github.io/PanguPlay/\n\n"
-            "🎯 Your one stop destination to Tamil entertainment!\n"
+            "🎯 Your one stop destination to Tamil entertainment!\n\n"
             "✨ Click the link above to explore!"
         )
         await update.message.reply_text(link_msg, parse_mode='Markdown')
 
     async def welcome_goodbye(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Enhanced welcome/goodbye messages - Fixed version"""
+        """Enhanced welcome/goodbye messages - Comprehensive Fix"""
         try:
-            chat_member_update = update.chat_member
+            # Handle both chat_member and my_chat_member updates
+            chat_member_update = update.chat_member or update.my_chat_member
             if not chat_member_update:
-                logger.info("No chat_member_update found")
+                logger.info("No chat member update found")
                 return
 
             old_member = chat_member_update.old_chat_member
             new_member = chat_member_update.new_chat_member
             user = new_member.user
+            chat_id = update.effective_chat.id
             
-            logger.info(f"Status change: {old_member.status} -> {new_member.status} for user {user.first_name}")
+            logger.info(f"Chat member update - User: {user.first_name} ({user.id})")
+            logger.info(f"Status change: {old_member.status} -> {new_member.status}")
+            logger.info(f"Chat ID: {chat_id}")
 
-            # Check for new member joining
+            # Skip if it's the bot itself
+            bot_info = await context.bot.get_me()
+            if user.id == bot_info.id:
+                logger.info("Skipping bot's own status change")
+                return
+
+            # Welcome new members
             if (old_member.status in [ChatMember.LEFT, ChatMember.KICKED, ChatMember.BANNED] and 
                 new_member.status in [ChatMember.MEMBER, ChatMember.ADMINISTRATOR, ChatMember.OWNER]):
                 
@@ -489,13 +499,14 @@ class AdvancedChatBot:
                     f"✨ Welcome {user.first_name}! Hope you enjoy your time here!"
                 ]
                 welcome_msg = random.choice(welcome_messages)
+                
                 await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
+                    chat_id=chat_id,
                     text=welcome_msg
                 )
-                logger.info(f"Sent welcome message for {user.first_name}")
+                logger.info(f"✅ Sent welcome message for {user.first_name}")
                 
-            # Check for member leaving
+            # Goodbye for leaving members
             elif (old_member.status in [ChatMember.MEMBER, ChatMember.ADMINISTRATOR] and 
                   new_member.status in [ChatMember.LEFT, ChatMember.KICKED, ChatMember.BANNED]):
                 
@@ -506,14 +517,66 @@ class AdvancedChatBot:
                     f"👋 Take care, {user.first_name}! Hope to see you again soon!"
                 ]
                 goodbye_msg = random.choice(goodbye_messages)
+                
                 await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
+                    chat_id=chat_id,
                     text=goodbye_msg
                 )
-                logger.info(f"Sent goodbye message for {user.first_name}")
+                logger.info(f"✅ Sent goodbye message for {user.first_name}")
+            
+            else:
+                logger.info(f"No action needed for status change: {old_member.status} -> {new_member.status}")
                 
         except Exception as e:
-            logger.error(f"Error in welcome_goodbye: {e}")
+            logger.error(f"❌ Error in welcome_goodbye: {e}")
+            logger.error(f"Update object: {update}")
+
+    # Alternative method using new_chat_members and left_chat_member
+    async def handle_new_members(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle new members joining via message updates"""
+        try:
+            if update.message and update.message.new_chat_members:
+                for new_member in update.message.new_chat_members:
+                    # Skip if it's the bot itself
+                    bot_info = await context.bot.get_me()
+                    if new_member.id == bot_info.id:
+                        continue
+                        
+                    welcome_messages = [
+                        f"🎉 Welcome to the party, {new_member.first_name}! Glad you're here!",
+                        f"👋 Hey {new_member.first_name}! Welcome aboard! Feel free to jump into any conversation!",
+                        f"🌟 Welcome {new_member.first_name}! We're excited to have you with us!",
+                        f"🎊 {new_member.first_name} just joined! Let's give them a warm welcome!",
+                        f"✨ Welcome {new_member.first_name}! Hope you enjoy your time here!"
+                    ]
+                    welcome_msg = random.choice(welcome_messages)
+                    await update.message.reply_text(welcome_msg)
+                    logger.info(f"✅ Sent welcome message for new member: {new_member.first_name}")
+        except Exception as e:
+            logger.error(f"❌ Error in handle_new_members: {e}")
+
+    async def handle_left_members(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle members leaving via message updates"""
+        try:
+            if update.message and update.message.left_chat_member:
+                left_member = update.message.left_chat_member
+                
+                # Skip if it's the bot itself
+                bot_info = await context.bot.get_me()
+                if left_member.id == bot_info.id:
+                    return
+                    
+                goodbye_messages = [
+                    f"👋 See you later, {left_member.first_name}! You're always welcome back!",
+                    f"🌅 Goodbye {left_member.first_name}! Thanks for being part of our community!",
+                    f"✌️ {left_member.first_name} has left the building! Catch you on the flip side!",
+                    f"👋 Take care, {left_member.first_name}! Hope to see you again soon!"
+                ]
+                goodbye_msg = random.choice(goodbye_messages)
+                await update.message.reply_text(goodbye_msg)
+                logger.info(f"✅ Sent goodbye message for left member: {left_member.first_name}")
+        except Exception as e:
+            logger.error(f"❌ Error in handle_left_members: {e}")
 
     async def combined_message_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Combined handler for moderation and conversation"""
@@ -543,11 +606,16 @@ class AdvancedChatBot:
         app.add_handler(CommandHandler("stats", self.stats_command))
         app.add_handler(CommandHandler("link", self.link_command))
 
+        # Welcome/goodbye handlers - Multiple methods for better coverage
+        # Method 1: Chat member updates (requires admin permissions)
+        app.add_handler(ChatMemberHandler(self.welcome_goodbye))
+        
+        # Method 2: Handle service messages for new/left members (backup method)
+        app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, self.handle_new_members))
+        app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, self.handle_left_members))
+
         # Message handlers - Updated order and combined
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.combined_message_handler))
-
-        # Chat member updates - Fixed handler
-        app.add_handler(ChatMemberHandler(self.welcome_goodbye))
 
     def run(self):
         """Start the bot"""
