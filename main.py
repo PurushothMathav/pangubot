@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import logging
 
-from telegram import Update, ChatMemberUpdated, MessageEntity, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, ChatMemberUpdated, MessageEntity, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -245,9 +245,10 @@ class AdvancedChatBot:
         self.muted_users[user_id] = until_date
         
         try:
+            from telegram import ChatPermissions
             await update.effective_chat.restrict_member(
                 user_id, 
-                permissions=telegram.ChatPermissions(can_send_messages=False),
+                permissions=ChatPermissions(can_send_messages=False),
                 until_date=until_date
             )
             await update.message.reply_text(f"🔇 **{user_name} has been muted for 1 hour!**", parse_mode='Markdown')
@@ -263,9 +264,10 @@ class AdvancedChatBot:
         user_name = update.message.reply_to_message.from_user.first_name
         
         try:
+            from telegram import ChatPermissions
             await update.effective_chat.restrict_member(
                 user_id, 
-                permissions=telegram.ChatPermissions(
+                permissions=ChatPermissions(
                     can_send_messages=True,
                     can_send_media_messages=True,
                     can_send_other_messages=True
@@ -462,32 +464,56 @@ class AdvancedChatBot:
         await update.message.reply_text(link_msg, parse_mode='Markdown')
 
     async def welcome_goodbye(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Enhanced welcome/goodbye messages"""
-        result: ChatMemberUpdated = update.chat_member
-        old_status = result.old_chat_member.status
-        new_status = result.new_chat_member.status
-        user = result.new_chat_member.user
+        """Enhanced welcome/goodbye messages - Fixed version"""
+        try:
+            chat_member_update = update.chat_member
+            if not chat_member_update:
+                logger.info("No chat_member_update found")
+                return
 
-        if old_status in ("left", "kicked") and new_status == "member":
-            welcome_messages = [
-                f"🎉 Welcome to the party, {user.mention_html()}! Glad you're here!",
-                f"👋 Hey {user.mention_html()}! Welcome aboard! Feel free to jump into any conversation!",
-                f"🌟 Welcome {user.mention_html()}! We're excited to have you with us!",
-                f"🎊 {user.mention_html()} just joined! Let's give them a warm welcome!",
-                f"✨ Welcome {user.mention_html()}! Hope you enjoy your time here!"
-            ]
-            welcome_msg = random.choice(welcome_messages)
-            await update.effective_chat.send_message(welcome_msg, parse_mode='HTML')
+            old_member = chat_member_update.old_chat_member
+            new_member = chat_member_update.new_chat_member
+            user = new_member.user
             
-        elif new_status in ("left", "kicked"):
-            goodbye_messages = [
-                f"👋 See you later, {user.mention_html()}! You're always welcome back!",
-                f"🌅 Goodbye {user.mention_html()}! Thanks for being part of our community!",
-                f"✌️ {user.mention_html()} has left the building! Catch you on the flip side!",
-                f"👋 Take care, {user.mention_html()}! Hope to see you again soon!"
-            ]
-            goodbye_msg = random.choice(goodbye_messages)
-            await update.effective_chat.send_message(goodbye_msg, parse_mode='HTML')
+            logger.info(f"Status change: {old_member.status} -> {new_member.status} for user {user.first_name}")
+
+            # Check for new member joining
+            if (old_member.status in [ChatMember.LEFT, ChatMember.KICKED, ChatMember.BANNED] and 
+                new_member.status in [ChatMember.MEMBER, ChatMember.ADMINISTRATOR, ChatMember.OWNER]):
+                
+                welcome_messages = [
+                    f"🎉 Welcome to the party, {user.first_name}! Glad you're here!",
+                    f"👋 Hey {user.first_name}! Welcome aboard! Feel free to jump into any conversation!",
+                    f"🌟 Welcome {user.first_name}! We're excited to have you with us!",
+                    f"🎊 {user.first_name} just joined! Let's give them a warm welcome!",
+                    f"✨ Welcome {user.first_name}! Hope you enjoy your time here!"
+                ]
+                welcome_msg = random.choice(welcome_messages)
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=welcome_msg
+                )
+                logger.info(f"Sent welcome message for {user.first_name}")
+                
+            # Check for member leaving
+            elif (old_member.status in [ChatMember.MEMBER, ChatMember.ADMINISTRATOR] and 
+                  new_member.status in [ChatMember.LEFT, ChatMember.KICKED, ChatMember.BANNED]):
+                
+                goodbye_messages = [
+                    f"👋 See you later, {user.first_name}! You're always welcome back!",
+                    f"🌅 Goodbye {user.first_name}! Thanks for being part of our community!",
+                    f"✌️ {user.first_name} has left the building! Catch you on the flip side!",
+                    f"👋 Take care, {user.first_name}! Hope to see you again soon!"
+                ]
+                goodbye_msg = random.choice(goodbye_messages)
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=goodbye_msg
+                )
+                logger.info(f"Sent goodbye message for {user.first_name}")
+                
+        except Exception as e:
+            logger.error(f"Error in welcome_goodbye: {e}")
 
     async def combined_message_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Combined handler for moderation and conversation"""
@@ -520,8 +546,8 @@ class AdvancedChatBot:
         # Message handlers - Updated order and combined
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.combined_message_handler))
 
-        # Chat member updates
-        app.add_handler(ChatMemberHandler(self.welcome_goodbye, ChatMemberHandler.CHAT_MEMBER))
+        # Chat member updates - Fixed handler
+        app.add_handler(ChatMemberHandler(self.welcome_goodbye))
 
     def run(self):
         """Start the bot"""
