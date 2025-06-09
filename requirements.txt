@@ -3,5 +3,3 @@ openai>=1.0.0
 pydantic>=2.0
 typing-extensions>=4.11
 asyncio
-h11==0.14.0  
-typing-extensions==4.11.0
