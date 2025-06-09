@@ -1234,9 +1234,9 @@ Need more help? Use /help in the chat!
 # Example usage and setup
 if __name__ == "__main__":
     # Configuration
-    BOT_TOKEN = os.getenv("BOT_TOKEN")  # Get from @BotFather
-    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # Optional, for AI features
-    
+    BOT_TOKEN = ${{BOT_TOKEN}}
+    OPENAI_API_KEY = ${{OPENAI_API_KEY}}
+
     # Create and run bot
     bot = GroupBot(BOT_TOKEN, OPENAI_API_KEY)
     
