@@ -1,374 +1,634 @@
-import logging
-import os
-import time
+#BOT_TOKEN = '8080188016:AAFgwqLg4tAA6Uw7XPNd8tpbiIQKTMBTXew'
+
+import asyncio
+import random
+import re
 import json
-from telegram import Update, ChatMember, ChatMemberUpdated
-from telegram.ext import Application, CommandHandler, ChatMemberHandler, MessageHandler, filters, ContextTypes
-from telegram.constants import ParseMode
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional
+import logging
 
-# --- Configuration ---
-# IMPORTANT: Replace "YOUR_BOT_TOKEN" with the token you get from BotFather
-BOT_TOKEN = os.getenv("BOT_TOKEN") 
-MAX_WARNINGS = 3  # Number of warnings before a user is banned
-BAD_WORDS = ["damn", "hell", "crap", "bloody","shit", "ass", "bitch", "piss", "dick","fuck", "fucking", "fucker", "motherfucker", "cocksucker", "cunt","nigger", "faggot", "retard","wtf"] # Add words you want to filter
-
-# --- Data Persistence ---
-# Using a simple JSON file for data persistence.
-# In a production environment, consider using a database like SQLite.
-DB_FILE = "bot_database.json"
-
-def load_data():
-    """Loads data from the JSON file."""
-    try:
-        with open(DB_FILE, "r") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        # Return default structure if file doesn't exist or is empty
-        return {"warnings": {}, "stats": {}}
-
-def save_data(data):
-    """Saves data to the JSON file."""
-    with open(DB_FILE, "w") as f:
-        json.dump(data, f, indent=4)
-
-# Load data at startup
-bot_data = load_data()
-
-
-# --- Logging Setup ---
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+from telegram import Update, ChatMemberUpdated, MessageEntity, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+    ChatMemberHandler,
+    CallbackQueryHandler
 )
-logging.getLogger("httpx").setLevel(logging.WARNING)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
-# --- Helper Functions ---
-async def is_user_admin(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Checks if a user is an administrator in a given chat."""
-    try:
-        chat_member = await context.bot.get_chat_member(chat_id, user_id)
-        return chat_member.status in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]
-    except Exception as e:
-        logger.error(f"Error checking admin status for user {user_id} in chat {chat_id}: {e}")
-        return False
+class AdvancedChatBot:
+    def __init__(self):
+        # Bot configuration
+        self.BOT_TOKEN = "8080188016:AAFgwqLg4tAA6Uw7XPNd8tpbiIQKTMBTXew"
         
-# --- Command Handlers ---
-
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles the /start command."""
-    user = update.effective_user
-    await update.message.reply_html(
-        rf"Hi {user.mention_html()}! I am a full-featured group management bot. "
-        "Add me to a group and make me an admin to see my powers!",
-    )
-
-async def kick_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Kicks a user from the group."""
-    user = update.effective_user
-    chat = update.effective_chat
-    
-    if chat.type == 'private':
-        await update.message.reply_text("This command only works in groups.")
-        return
-
-    if not await is_user_admin(chat.id, user.id, context):
-        await update.message.reply_text("You must be an admin to use this command.")
-        return
-
-    if not update.message.reply_to_message:
-        await update.message.reply_text("Please reply to a user's message to kick them.")
-        return
-
-    user_to_kick = update.message.reply_to_message.from_user
-    
-    try:
-        await context.bot.kick_chat_member(chat_id=chat.id, user_id=user_to_kick.id)
-        await update.message.reply_text(f"Successfully kicked {user_to_kick.mention_html()}.", parse_mode=ParseMode.HTML)
-        logger.info(f"Admin {user.id} kicked {user_to_kick.id} from chat {chat.id}")
-    except Exception as e:
-        await update.message.reply_text(f"Failed to kick user. Reason: {e}")
-        logger.error(f"Failed to kick user {user_to_kick.id} in chat {chat.id}: {e}")
-
-async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Bans a user from the group."""
-    user = update.effective_user
-    chat = update.effective_chat
-    
-    if chat.type == 'private':
-        await update.message.reply_text("This command only works in groups.")
-        return
-
-    if not await is_user_admin(chat.id, user.id, context):
-        await update.message.reply_text("You must be an admin to use this command.")
-        return
-
-    if not update.message.reply_to_message:
-        await update.message.reply_text("Please reply to a user's message to ban them.")
-        return
-
-    user_to_ban = update.message.reply_to_message.from_user
-    
-    try:
-        await context.bot.ban_chat_member(chat_id=chat.id, user_id=user_to_ban.id)
-        await update.message.reply_text(f"Successfully banned {user_to_ban.mention_html()}.", parse_mode=ParseMode.HTML)
-        logger.info(f"Admin {user.id} banned {user_to_ban.id} from chat {chat.id}")
-    except Exception as e:
-        await update.message.reply_text(f"Failed to ban user. Reason: {e}")
-        logger.error(f"Failed to ban user {user_to_ban.id} in chat {chat.id}: {e}")
-
-async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Unbans a user from the group."""
-    user = update.effective_user
-    chat = update.effective_chat
-    
-    if chat.type == 'private':
-        await update.message.reply_text("This command only works in groups.")
-        return
-
-    if not await is_user_admin(chat.id, user.id, context):
-        await update.message.reply_text("You must be an admin to use this command.")
-        return
+        # In-memory storage (use database in production)
+        self.warnings = {}
+        self.user_contexts = {}  # Store conversation context per user
+        self.group_stats = {}
+        self.muted_users = {}
         
-    if not context.args:
-        await update.message.reply_text("Usage: /unban <user_id>")
-        return
+        # Enhanced bad words list with categories
+        self.profanity_patterns = {
+            'mild': ['damn', 'hell', 'crap', 'bloody'],
+            'moderate': ['shit', 'ass', 'bitch', 'piss', 'dick'],
+            'severe': ['fuck', 'fucking', 'fucker', 'motherfucker', 'cocksucker', 'cunt'],
+            'slurs': ['nigger', 'faggot', 'retard']  # Handle with extreme caution
+        }
+        
+        # Conversation patterns for human-like responses
+        self.conversation_patterns = {
+            'greetings': {
+                'patterns': [r'\b(hi|hello|hey|sup|yo|good morning|good evening)\b'],
+                'responses': [
+                    "Hey there! 👋 How's your day going?",
+                    "Hello! Nice to see you here! 😊",
+                    "Hi! What's on your mind today?",
+                    "Hey! Hope you're having a great day! ✨",
+                    "Yo! What's up? 🤙"
+                ]
+            },
+            'questions': {
+                'patterns': [r'\?', r'\bwhat\b', r'\bhow\b', r'\bwhy\b', r'\bwhen\b', r'\bwhere\b'],
+                'responses': [
+                    "That's an interesting question! 🤔",
+                    "Hmm, let me think about that...",
+                    "Good question! What do you think?",
+                    "I'm curious about that too! 💭",
+                    "That's something worth discussing!"
+                ]
+            },
+            'thanks': {
+                'patterns': [r'\b(thanks|thank you|thx|ty)\b'],
+                'responses': [
+                    "You're welcome! 😊",
+                    "No problem at all! 👍",
+                    "Happy to help! ✨",
+                    "Anytime! 🙌",
+                    "Glad I could help! 😄"
+                ]
+            },
+            'jokes': {
+                'patterns': [r'\b(joke|funny|lol|haha|😂|🤣)\b'],
+                'responses': [
+                    "Haha, I love a good laugh! 😄",
+                    "Humor makes everything better! 😂",
+                    "That's hilarious! 🤣",
+                    "You're pretty funny! 😁",
+                    "Laughter is the best medicine! 💊😂"
+                ]
+            },
+            'sad': {
+                'patterns': [r'\b(sad|depressed|down|upset|😢|😭|☹️)\b'],
+                'responses': [
+                    "I'm sorry you're feeling down. Things will get better! 💙",
+                    "Sending you virtual hugs! 🤗 You're not alone.",
+                    "It's okay to feel sad sometimes. Take care of yourself! 💝",
+                    "Remember, tough times don't last, tough people do! 💪",
+                    "Here if you need to talk. You matter! ❤️"
+                ]
+            },
+            'compliments': {
+                'patterns': [r'\b(good|great|awesome|amazing|wonderful|perfect)\b'],
+                'responses': [
+                    "That's fantastic! 🌟",
+                    "Awesome to hear! 🎉",
+                    "That sounds amazing! ✨",
+                    "So happy for you! 😊",
+                    "That's wonderful news! 🎊"
+                ]
+            }
+        }
+        
+        # Fun commands responses
+        self.fun_responses = {
+            'motivational': [
+                "You've got this! 💪 Every small step counts!",
+                "Believe in yourself! You're capable of amazing things! ✨",
+                "Today is full of possibilities! Make it count! 🌟",
+                "You're stronger than you think! Keep pushing forward! 🚀",
+                "Success is a journey, not a destination. Enjoy the ride! 🎯"
+            ],
+            'jokes': [
+                "Why don't scientists trust atoms? Because they make up everything! 😄",
+                "I told my wife she was drawing her eyebrows too high. She looked surprised! 😂",
+                "Why did the math book look so sad? Because it had too many problems! 📚",
+                "What do you call a fake noodle? An impasta! 🍝",
+                "Why don't eggs tell jokes? They'd crack each other up! 🥚"
+            ],
+            'facts': [
+                "🧠 Did you know? Octopuses have three hearts and blue blood!",
+                "🌙 Fun fact: A day on Venus is longer than its year!",
+                "🐝 Amazing: Bees can recognize human faces!",
+                "🌊 Cool fact: There are more possible chess games than atoms in the observable universe!",
+                "🎵 Interesting: Music can trigger the same dopamine release as food and sex!"
+            ]
+        }
 
-    try:
-        user_id_to_unban = int(context.args[0])
-        await context.bot.unban_chat_member(chat_id=chat.id, user_id=user_id_to_unban)
-        await update.message.reply_text(f"Successfully unbanned user {user_id_to_unban}.")
-        logger.info(f"Admin {user.id} unbanned {user_id_to_unban} from chat {chat.id}")
-    except (ValueError, IndexError):
-        await update.message.reply_text("Invalid User ID.")
-    except Exception as e:
-        await update.message.reply_text(f"Failed to unban user. Reason: {e}")
-        logger.error(f"Failed to unban user in chat {chat.id}: {e}")
-
-async def warn_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Warns a user. If warnings exceed MAX_WARNINGS, the user is banned."""
-    user = update.effective_user
-    chat = update.effective_chat
-
-    if chat.type == 'private':
-        await update.message.reply_text("This command only works in groups.")
-        return
-
-    if not await is_user_admin(chat.id, user.id, context):
-        await update.message.reply_text("You must be an admin to use this command.")
-        return
-
-    if not update.message.reply_to_message:
-        await update.message.reply_text("Please reply to a user's message to warn them.")
-        return
-    
-    user_to_warn = update.message.reply_to_message.from_user
-    chat_id_str = str(chat.id)
-    user_id_str = str(user_to_warn.id)
-
-    # Initialize warnings if not present
-    if chat_id_str not in bot_data["warnings"]:
-        bot_data["warnings"][chat_id_str] = {}
-    if user_id_str not in bot_data["warnings"][chat_id_str]:
-        bot_data["warnings"][chat_id_str][user_id_str] = 0
-
-    # Increment warning count
-    bot_data["warnings"][chat_id_str][user_id_str] += 1
-    save_data(bot_data)
-    
-    current_warnings = bot_data["warnings"][chat_id_str][user_id_str]
-
-    if current_warnings >= MAX_WARNINGS:
-        try:
-            await context.bot.ban_chat_member(chat_id=chat.id, user_id=user_to_warn.id)
-            await update.message.reply_text(
-                f"{user_to_warn.mention_html()} has reached {current_warnings}/{MAX_WARNINGS} warnings and has been banned.",
-                parse_mode=ParseMode.HTML
-            )
-            logger.info(f"Banned {user_to_warn.id} from {chat.id} due to max warnings.")
-            # Reset warnings after ban
-            bot_data["warnings"][chat_id_str][user_id_str] = 0
-            save_data(bot_data)
-        except Exception as e:
-            await update.message.reply_text(f"Could not ban user. Reason: {e}")
-            logger.error(f"Failed to auto-ban user {user_to_warn.id} in chat {chat.id}: {e}")
-    else:
-        await update.message.reply_text(
-            f"{user_to_warn.mention_html()} has been warned. "
-            f"This is warning {current_warnings}/{MAX_WARNINGS}.",
-            parse_mode=ParseMode.HTML
+    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        welcome_msg = (
+            "🤖 **Advanced Chat Bot Online!** \n\n"
+            "I'm here to help moderate your chat and have conversations! Here's what I can do:\n\n"
+            "🔧 **Moderation:**\n"
+            "• Auto-warn for inappropriate language\n"
+            "• Ban/unban/mute users\n"
+            "• Welcome new members\n\n"
+            "💬 **Chat Features:**\n"
+            "• Natural conversations (mention me!)\n"
+            "• Fun commands (/joke, /motivate, /fact)\n"
+            "• Group statistics\n\n"
+            "📋 **Commands:** /help for full list\n\n"
+            "Let's make this chat awesome! 🎉"
         )
-        logger.info(f"Admin {user.id} warned {user_to_warn.id} in chat {chat.id}.")
+        await update.message.reply_text(welcome_msg, parse_mode='Markdown')
 
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Displays group statistics."""
-    chat = update.effective_chat
-    chat_id_str = str(chat.id)
-    
-    if chat.type == 'private':
-        await update.message.reply_text("This command only works in groups.")
-        return
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        help_text = """
+🔧 **Moderation Commands:**
+/warn - Warn a user (reply to their message)
+/ban - Ban a user (reply to their message)
+/unban - Unban a user (reply to their message)
+/mute - Mute a user for 1 hour (reply to their message)
+/unmute - Unmute a user (reply to their message)
 
-    try:
-        member_count = await context.bot.get_chat_member_count(chat.id)
+🎉 **Fun Commands:**
+/joke - Get a random joke
+/motivate - Get motivational message
+/fact - Learn something interesting
+/stats - View group statistics
+/roll - Roll a dice (1-6)
+/flip - Flip a coin
+/link - Get PanguPlay website link
+
+💬 **Chat Features:**
+• Mention me (@PangusBot) for natural conversation
+• I respond to greetings, questions, and emotions
+• Auto-moderation for inappropriate content
+
+🎯 **Tips:**
+• Reply to messages when using moderation commands
+• I'm always learning and improving!
+        """
+        await update.message.reply_text(help_text, parse_mode='Markdown')
+
+    async def warn_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not update.message.reply_to_message:
+            await update.message.reply_text("❌ Please reply to a user's message to warn them.")
+            return
+            
+        user_id = update.message.reply_to_message.from_user.id
+        user_name = update.message.reply_to_message.from_user.first_name
         
-        stats_text = f"<b>📊 Group Statistics for {chat.title}</b>\n\n"
-        stats_text += f"Total Members: {member_count}\n"
+        self.warnings[user_id] = self.warnings.get(user_id, 0) + 1
+        count = self.warnings[user_id]
+        
+        warning_msg = f"⚠️ **Warning issued to {user_name}**\n"
+        warning_msg += f"Total warnings: **{count}/3**\n"
+        
+        if count >= 3:
+            try:
+                await update.effective_chat.ban_member(user_id)
+                warning_msg += "🚫 **User auto-banned after 3 warnings!**"
+            except Exception as e:
+                warning_msg += "❌ Failed to ban user (insufficient permissions)"
+        else:
+            warning_msg += f"Next warning will result in a ban!"
+            
+        await update.message.reply_text(warning_msg, parse_mode='Markdown')
 
-        if chat_id_str in bot_data.get("stats", {}):
-            chat_stats = bot_data["stats"][chat_id_str]
-            stats_text += f"New Members Today: {chat_stats.get('joins_today', 0)}\n"
-            stats_text += f"Members Left Today: {chat_stats.get('leaves_today', 0)}\n"
-
-        await update.message.reply_html(stats_text)
-
-    except Exception as e:
-        await update.message.reply_text(f"Could not retrieve stats. Reason: {e}")
-        logger.error(f"Failed to get stats for chat {chat.id}: {e}")
-
-# --- Message Handlers ---
-
-async def content_filter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Filters messages for links and bad words."""
-    message = update.message
-    text = message.text.lower() if message.text else ""
-
-    # Filter for links
-    if 'http' in text or 't.me' in text or 'www' in text:
+    async def ban_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not update.message.reply_to_message:
+            await update.message.reply_text("❌ Please reply to a user's message to ban them.")
+            return
+            
+        user_id = update.message.reply_to_message.from_user.id
+        user_name = update.message.reply_to_message.from_user.first_name
+        
         try:
-            await message.delete()
-            await message.reply_text(
-                f"{message.from_user.mention_html()}, sending links is not allowed here.",
-                parse_mode=ParseMode.HTML,
-            )
-            logger.info(f"Deleted a message with a link from {message.from_user.id} in chat {message.chat.id}")
+            await update.effective_chat.ban_member(user_id)
+            await update.message.reply_text(f"🚫 **{user_name} has been banned!**", parse_mode='Markdown')
         except Exception as e:
-            logger.error(f"Failed to delete link message in chat {message.chat.id}: {e}")
-        return # Stop processing if a link is found
+            await update.message.reply_text("❌ Failed to ban user. I might not have admin permissions.")
 
-    # Filter for bad words
-    if any(word in text for word in BAD_WORDS):
+    async def unban_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not update.message.reply_to_message:
+            await update.message.reply_text("❌ Please reply to a user's message to unban them.")
+            return
+            
+        user_id = update.message.reply_to_message.from_user.id
+        user_name = update.message.reply_to_message.from_user.first_name
+        
         try:
-            await message.delete()
-            await message.reply_text(
-                f"{message.from_user.mention_html()}, please watch your language.",
-                parse_mode=ParseMode.HTML,
-            )
-            logger.info(f"Deleted a message with a bad word from {message.from_user.id} in chat {message.chat.id}")
+            await update.effective_chat.unban_member(user_id)
+            # Reset warnings
+            self.warnings[user_id] = 0
+            await update.message.reply_text(f"✅ **{user_name} has been unbanned and warnings reset!**", parse_mode='Markdown')
         except Exception as e:
-            logger.error(f"Failed to delete bad word message in chat {message.chat.id}: {e}")
+            await update.message.reply_text("❌ Failed to unban user.")
 
-async def ai_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles direct messages to the bot for AI conversation."""
-    user_input = update.message.text
-    
-    # Placeholder for a real AI API call
-    # In a real implementation, you would send user_input to an AI service (like OpenAI, Gemini, etc.)
-    # and get a response.
-    ai_response = f"You said: '{user_input}'. I'm still learning to have conversations!"
-    
-    await update.message.reply_text(ai_response)
-    logger.info(f"Replied to a direct message from {update.effective_user.id}")
+    async def mute_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not update.message.reply_to_message:
+            await update.message.reply_text("❌ Please reply to a user's message to mute them.")
+            return
+            
+        user_id = update.message.reply_to_message.from_user.id
+        user_name = update.message.reply_to_message.from_user.first_name
+        
+        # Mute for 1 hour
+        until_date = datetime.now() + timedelta(hours=1)
+        self.muted_users[user_id] = until_date
+        
+        try:
+            from telegram import ChatPermissions
+            await update.effective_chat.restrict_member(
+                user_id, 
+                permissions=ChatPermissions(can_send_messages=False),
+                until_date=until_date
+            )
+            await update.message.reply_text(f"🔇 **{user_name} has been muted for 1 hour!**", parse_mode='Markdown')
+        except Exception as e:
+            await update.message.reply_text("❌ Failed to mute user.")
 
+    async def unmute_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not update.message.reply_to_message:
+            await update.message.reply_text("❌ Please reply to a user's message to unmute them.")
+            return
+            
+        user_id = update.message.reply_to_message.from_user.id
+        user_name = update.message.reply_to_message.from_user.first_name
+        
+        try:
+            from telegram import ChatPermissions
+            await update.effective_chat.restrict_member(
+                user_id, 
+                permissions=ChatPermissions(
+                    can_send_messages=True,
+                    can_send_media_messages=True,
+                    can_send_other_messages=True
+                )
+            )
+            if user_id in self.muted_users:
+                del self.muted_users[user_id]
+            await update.message.reply_text(f"🔊 **{user_name} has been unmuted!**", parse_mode='Markdown')
+        except Exception as e:
+            await update.message.reply_text("❌ Failed to unmute user.")
 
-# --- Member Update Handlers ---
-
-def extract_status_change(chat_member_update: ChatMemberUpdated):
-    """Extracts member status changes."""
-    status_change = chat_member_update.difference().get("status")
-    if status_change is None:
+    def detect_profanity_level(self, text: str) -> Optional[str]:
+        """Detect profanity and return severity level"""
+        text_lower = text.lower()
+        
+        for level, words in self.profanity_patterns.items():
+            if any(word in text_lower for word in words):
+                return level
         return None
-    old_status, new_status = status_change
-    was_member = old_status in [ChatMember.MEMBER, ChatMember.ADMINISTRATOR, ChatMember.OWNER]
-    is_member = new_status in [ChatMember.MEMBER, ChatMember.ADMINISTRATOR, ChatMember.OWNER]
-    return was_member, is_member
 
-async def track_chats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Tracks when the bot is added to or removed from a chat."""
-    result = extract_status_change(update.my_chat_member)
-    if result is None:
-        return
-    was_member, is_member = result
-    chat = update.effective_chat
-    if not was_member and is_member:
-        logger.info(f"Bot was added to chat {chat.title} ({chat.id})")
-    elif was_member and not is_member:
-        logger.info(f"Bot was removed from chat {chat.title} ({chat.id})")
-
-async def welcome_and_goodbye(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Greets new members and says goodbye to those who leave, also updates stats."""
-    result = extract_status_change(update.chat_member)
-    if result is None:
-        return
-
-    was_member, is_member = result
-    member_name = update.chat_member.new_chat_member.user.mention_html()
-    chat = update.chat_member.chat
-    chat_id_str = str(chat.id)
-
-    # Initialize stats if not present
-    if chat_id_str not in bot_data["stats"]:
-        bot_data["stats"][chat_id_str] = {"joins_today": 0, "leaves_today": 0}
+    async def check_bot_mention(self, message, bot_username: str) -> bool:
+        """Enhanced bot mention detection"""
+        if not message or not message.text:
+            return False
+            
+        text = message.text.lower()
+        bot_username = bot_username.lower()
         
-    # Welcome Message and Stats Update
-    if not was_member and is_member:
-        bot_data["stats"][chat_id_str]["joins_today"] = bot_data["stats"][chat_id_str].get("joins_today", 0) + 1
-        await context.bot.send_message(
-            chat.id,
-            f"Welcome {member_name} to <b>{chat.title}</b>! We're glad you're here.",
-            parse_mode=ParseMode.HTML,
+        # Method 1: Check message entities for @mentions
+        if message.entities:
+            for entity in message.entities:
+                if entity.type == MessageEntity.MENTION:
+                    mention_text = message.text[entity.offset:entity.offset + entity.length].lower()
+                    if mention_text == f"@{bot_username}":
+                        return True
+        
+        # Method 2: Check if bot username appears anywhere in text
+        if f"@{bot_username}" in text:
+            return True
+            
+        # Method 3: Check if message starts with bot name
+        if text.startswith(f"@{bot_username}"):
+            return True
+            
+        return False
+
+    async def smart_content_moderation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Advanced content moderation with contextual responses - only when bot is mentioned"""
+        message = update.message
+        if not message or not message.text:
+            return
+
+        # Only moderate when bot is mentioned
+        bot_username = (await context.bot.get_me()).username
+        if not await self.check_bot_mention(message, bot_username):
+            return
+
+        user_id = message.from_user.id
+        user_name = message.from_user.first_name
+        text = message.text
+
+        # Check for profanity
+        profanity_level = self.detect_profanity_level(text)
+        
+        if profanity_level:
+            self.warnings[user_id] = self.warnings.get(user_id, 0) + 1
+            count = self.warnings[user_id]
+            
+            # Different responses based on severity
+            if profanity_level == 'mild':
+                response = f"😅 Hey {user_name}, let's keep it clean! Warning {count}/3"
+            elif profanity_level == 'moderate':
+                response = f"😐 {user_name}, that language isn't cool here. Warning {count}/3"
+            elif profanity_level == 'severe':
+                response = f"😠 {user_name}, that's too much! Please watch your language. Warning {count}/3"
+            else:  # slurs
+                response = f"🚫 {user_name}, that language is completely unacceptable! Final warning {count}/3"
+            
+            if count >= 3:
+                try:
+                    await update.effective_chat.ban_member(user_id)
+                    response += "\n🚫 **User has been banned for repeated violations!**"
+                except:
+                    response += "\n❌ Unable to ban (need admin permissions)"
+                    
+            await message.reply_text(response, parse_mode='Markdown')
+
+    async def natural_conversation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle natural conversation when bot is mentioned"""
+        message = update.message
+        if not message or not message.text:
+            return
+
+        bot_username = (await context.bot.get_me()).username.lower()
+        text = message.text.lower()
+        original_text = message.text
+        user_id = message.from_user.id
+        user_name = message.from_user.first_name
+
+        # Check if bot is mentioned (multiple ways)
+        bot_username = (await context.bot.get_me()).username
+        mentioned = await self.check_bot_mention(message, bot_username)
+
+        if not mentioned:
+            return
+
+        # Update user context
+        if user_id not in self.user_contexts:
+            self.user_contexts[user_id] = {'messages': [], 'last_interaction': datetime.now()}
+        
+        self.user_contexts[user_id]['messages'].append(text)
+        self.user_contexts[user_id]['last_interaction'] = datetime.now()
+        
+        # Keep only last 5 messages for context
+        if len(self.user_contexts[user_id]['messages']) > 5:
+            self.user_contexts[user_id]['messages'].pop(0)
+
+        # Check for profanity first
+        if self.detect_profanity_level(text):
+            await self.smart_content_moderation(update, context)
+            return
+
+        # Find matching conversation pattern
+        response = None
+        for category, pattern_data in self.conversation_patterns.items():
+            for pattern in pattern_data['patterns']:
+                if re.search(pattern, text, re.IGNORECASE):
+                    response = random.choice(pattern_data['responses'])
+                    break
+            if response:
+                break
+
+        # Default responses if no pattern matches
+        if not response:
+            default_responses = [
+                f"That's interesting, {user_name}! Tell me more! 🤔",
+                f"I hear you, {user_name}! What's your take on that? 💭",
+                f"Thanks for sharing that with me, {user_name}! 😊",
+                f"That's a great point, {user_name}! 👍",
+                f"I'm listening, {user_name}! Keep going! 👂",
+                f"Fascinating perspective, {user_name}! 🌟",
+                f"You always have something interesting to say, {user_name}! ✨"
+            ]
+            response = random.choice(default_responses)
+
+        await message.reply_text(response)
+
+    # Fun commands
+    async def joke_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        joke = random.choice(self.fun_responses['jokes'])
+        await update.message.reply_text(joke)
+
+    async def motivate_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        motivation = random.choice(self.fun_responses['motivational'])
+        await update.message.reply_text(motivation)
+
+    async def fact_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        fact = random.choice(self.fun_responses['facts'])
+        await update.message.reply_text(fact)
+
+    async def roll_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        roll = random.randint(1, 6)
+        await update.message.reply_text(f"🎲 You rolled a **{roll}**!", parse_mode='Markdown')
+
+    async def flip_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        result = random.choice(['Heads', 'Tails'])
+        emoji = '🟡' if result == 'Heads' else '⚪'
+        await update.message.reply_text(f"🪙 {emoji} **{result}**!", parse_mode='Markdown')
+
+    async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        total_warnings = len(self.warnings)
+        active_users = len(self.user_contexts)
+        muted_count = len(self.muted_users)
+        
+        stats_msg = f"""
+📊 **Group Statistics**
+
+👥 Active conversationalists: **{active_users}**
+⚠️ Total users with warnings: **{total_warnings}**
+🔇 Currently muted users: **{muted_count}**
+
+🤖 Bot uptime: Online and ready!
+💬 I'm here to help keep things fun and friendly!
+        """
+        await update.message.reply_text(stats_msg.strip(), parse_mode='Markdown')
+
+    async def link_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        link_msg = (
+            "🌐 **Check out PanguPlay!** 🎮\n\n"
+            "🔗 **Website**: http://purushothmathav.github.io/PanguPlay/\n\n"
+            "🎯 Your one stop destination to Tamil entertainment!\n\n"
+            "✨ Click the link above to explore!"
         )
-        logger.info(f"{member_name} joined chat {chat.title} ({chat.id})")
+        await update.message.reply_text(link_msg, parse_mode='Markdown')
+
+    async def welcome_goodbye(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Enhanced welcome/goodbye messages - Comprehensive Fix"""
+        try:
+            # Handle both chat_member and my_chat_member updates
+            chat_member_update = update.chat_member or update.my_chat_member
+            if not chat_member_update:
+                logger.info("No chat member update found")
+                return
+
+            old_member = chat_member_update.old_chat_member
+            new_member = chat_member_update.new_chat_member
+            user = new_member.user
+            chat_id = update.effective_chat.id
+            
+            logger.info(f"Chat member update - User: {user.first_name} ({user.id})")
+            logger.info(f"Status change: {old_member.status} -> {new_member.status}")
+            logger.info(f"Chat ID: {chat_id}")
+
+            # Skip if it's the bot itself
+            bot_info = await context.bot.get_me()
+            if user.id == bot_info.id:
+                logger.info("Skipping bot's own status change")
+                return
+
+            # Welcome new members
+            if (old_member.status in [ChatMember.LEFT, ChatMember.KICKED, ChatMember.BANNED] and 
+                new_member.status in [ChatMember.MEMBER, ChatMember.ADMINISTRATOR, ChatMember.OWNER]):
+                
+                welcome_messages = [
+                    f"🎉 Welcome to the party, {user.first_name}! Glad you're here!",
+                    f"👋 Hey {user.first_name}! Welcome aboard! Feel free to jump into any conversation!",
+                    f"🌟 Welcome {user.first_name}! We're excited to have you with us!",
+                    f"🎊 {user.first_name} just joined! Let's give them a warm welcome!",
+                    f"✨ Welcome {user.first_name}! Hope you enjoy your time here!"
+                ]
+                welcome_msg = random.choice(welcome_messages)
+                
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=welcome_msg
+                )
+                logger.info(f"✅ Sent welcome message for {user.first_name}")
+                
+            # Goodbye for leaving members
+            elif (old_member.status in [ChatMember.MEMBER, ChatMember.ADMINISTRATOR] and 
+                  new_member.status in [ChatMember.LEFT, ChatMember.KICKED, ChatMember.BANNED]):
+                
+                goodbye_messages = [
+                    f"👋 See you later, {user.first_name}! You're always welcome back!",
+                    f"🌅 Goodbye {user.first_name}! Thanks for being part of our community!",
+                    f"✌️ {user.first_name} has left the building! Catch you on the flip side!",
+                    f"👋 Take care, {user.first_name}! Hope to see you again soon!"
+                ]
+                goodbye_msg = random.choice(goodbye_messages)
+                
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=goodbye_msg
+                )
+                logger.info(f"✅ Sent goodbye message for {user.first_name}")
+            
+            else:
+                logger.info(f"No action needed for status change: {old_member.status} -> {new_member.status}")
+                
+        except Exception as e:
+            logger.error(f"❌ Error in welcome_goodbye: {e}")
+            logger.error(f"Update object: {update}")
+
+    # Alternative method using new_chat_members and left_chat_member
+    async def handle_new_members(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle new members joining via message updates"""
+        try:
+            if update.message and update.message.new_chat_members:
+                for new_member in update.message.new_chat_members:
+                    # Skip if it's the bot itself
+                    bot_info = await context.bot.get_me()
+                    if new_member.id == bot_info.id:
+                        continue
+                        
+                    welcome_messages = [
+                        f"🎉 Welcome to the party, {new_member.first_name}! Glad you're here!",
+                        f"👋 Hey {new_member.first_name}! Welcome aboard! Feel free to jump into any conversation!",
+                        f"🌟 Welcome {new_member.first_name}! We're excited to have you with us!",
+                        f"🎊 {new_member.first_name} just joined! Let's give them a warm welcome!",
+                        f"✨ Welcome {new_member.first_name}! Hope you enjoy your time here!"
+                    ]
+                    welcome_msg = random.choice(welcome_messages)
+                    await update.message.reply_text(welcome_msg)
+                    logger.info(f"✅ Sent welcome message for new member: {new_member.first_name}")
+        except Exception as e:
+            logger.error(f"❌ Error in handle_new_members: {e}")
+
+    async def handle_left_members(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle members leaving via message updates"""
+        try:
+            if update.message and update.message.left_chat_member:
+                left_member = update.message.left_chat_member
+                
+                # Skip if it's the bot itself
+                bot_info = await context.bot.get_me()
+                if left_member.id == bot_info.id:
+                    return
+                    
+                goodbye_messages = [
+                    f"👋 See you later, {left_member.first_name}! You're always welcome back!",
+                    f"🌅 Goodbye {left_member.first_name}! Thanks for being part of our community!",
+                    f"✌️ {left_member.first_name} has left the building! Catch you on the flip side!",
+                    f"👋 Take care, {left_member.first_name}! Hope to see you again soon!"
+                ]
+                goodbye_msg = random.choice(goodbye_messages)
+                await update.message.reply_text(goodbye_msg)
+                logger.info(f"✅ Sent goodbye message for left member: {left_member.first_name}")
+        except Exception as e:
+            logger.error(f"❌ Error in handle_left_members: {e}")
+
+    async def combined_message_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Combined handler for moderation and conversation"""
+        # First check for moderation (if bot is mentioned with bad words)
+        await self.smart_content_moderation(update, context)
         
-    # Goodbye Message and Stats Update
-    elif was_member and not is_member:
-        bot_data["stats"][chat_id_str]["leaves_today"] = bot_data["stats"][chat_id_str].get("leaves_today", 0) + 1
-        await context.bot.send_message(
-            chat.id,
-            f"Goodbye {member_name}. We're sad to see you go.",
-            parse_mode=ParseMode.HTML,
-        )
-        logger.info(f"{member_name} left or was removed from chat {chat.title} ({chat.id})")
+        # Then handle natural conversation (if bot is mentioned)
+        await self.natural_conversation(update, context)
+
+    def setup_handlers(self, app):
+        """Setup all command and message handlers"""
+        # Command handlers
+        app.add_handler(CommandHandler("start", self.start))
+        app.add_handler(CommandHandler("help", self.help_command))
+        app.add_handler(CommandHandler("warn", self.warn_user))
+        app.add_handler(CommandHandler("ban", self.ban_user))
+        app.add_handler(CommandHandler("unban", self.unban_user))
+        app.add_handler(CommandHandler("mute", self.mute_user))
+        app.add_handler(CommandHandler("unmute", self.unmute_user))
         
-    save_data(bot_data)
+        # Fun commands
+        app.add_handler(CommandHandler("joke", self.joke_command))
+        app.add_handler(CommandHandler("motivate", self.motivate_command))
+        app.add_handler(CommandHandler("fact", self.fact_command))
+        app.add_handler(CommandHandler("roll", self.roll_command))
+        app.add_handler(CommandHandler("flip", self.flip_command))
+        app.add_handler(CommandHandler("stats", self.stats_command))
+        app.add_handler(CommandHandler("link", self.link_command))
 
-# --- Main Bot Logic ---
-
-def main() -> None:
-    """Start the bot."""
-    if BOT_TOKEN == "YOUR_BOT_TOKEN":
-        print("FATAL ERROR: Please replace 'YOUR_BOT_TOKEN' in the script with your bot token.")
-        return
+        # Welcome/goodbye handlers - Multiple methods for better coverage
+        # Method 1: Chat member updates (requires admin permissions)
+        app.add_handler(ChatMemberHandler(self.welcome_goodbye))
         
-    application = Application.builder().token(BOT_TOKEN).build()
+        # Method 2: Handle service messages for new/left members (backup method)
+        app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, self.handle_new_members))
+        app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, self.handle_left_members))
 
-    # --- Registering Handlers ---
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("kick", kick_command))
-    application.add_handler(CommandHandler("ban", ban_command))
-    application.add_handler(CommandHandler("unban", unban_command))
-    application.add_handler(CommandHandler("warn", warn_command))
-    application.add_handler(CommandHandler("stats", stats_command))
-    
-    # Member update handlers
-    application.add_handler(ChatMemberHandler(track_chats, ChatMemberHandler.MY_CHAT_MEMBER))
-    application.add_handler(ChatMemberHandler(welcome_and_goodbye, ChatMemberHandler.CHAT_MEMBER))
+        # Message handlers - Updated order and combined
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.combined_message_handler))
 
-    # Message handlers
-    # Filters for links or bad words in group chats
-    application.add_handler(MessageHandler(
-        filters.TEXT & (~filters.COMMAND) & filters.ChatType.GROUPS,
-        content_filter_handler
-    ))
-    # Filter for AI chat in private messages
-    application.add_handler(MessageHandler(
-        filters.TEXT & (~filters.COMMAND) & filters.ChatType.PRIVATE,
-        ai_chat_handler
-    ))
-    
-    # Start the Bot
-    print("Full-featured bot is starting...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    def run(self):
+        """Start the bot"""
+        app = ApplicationBuilder().token(self.BOT_TOKEN).build()
+        self.setup_handlers(app)
+        
+        print("🤖 Advanced Chat Bot is running... Press Ctrl+C to stop.")
+        print("✨ Features: Natural conversation, smart moderation, fun commands!")
+        app.run_polling()
 
-if __name__ == "__main__":
+def main():
+    bot = AdvancedChatBot()
+    bot.run()
+
+if __name__ == '__main__':
     main()
