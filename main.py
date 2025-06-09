@@ -741,9 +741,10 @@ Just mention me in a message for AI conversation!
         application.run_polling()
 
 
-    async def set_bot_commands(self, bot):
+    async def set_bot_commands(self, application):
         """Set bot commands for UI"""
-        await bot.set_my_commands(self.admin_commands)
+        await application.bot.set_my_commands(self.admin_commands)
+
 
     async def add_note(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Add a note"""
