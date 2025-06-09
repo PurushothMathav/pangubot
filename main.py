@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import re
 import random
+import os
 
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup, 
@@ -1233,8 +1234,8 @@ Need more help? Use /help in the chat!
 # Example usage and setup
 if __name__ == "__main__":
     # Configuration
-    BOT_TOKEN = "8080188016:AAFgwqLg4tAA6Uw7XPNd8tpbiIQKTMBTXew"  # Get from @BotFather
-    OPENAI_API_KEY = "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"  # Optional, for AI features
+    BOT_TOKEN = os.getenv("BOT_TOKEN")  # Get from @BotFather
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # Optional, for AI features
     
     # Create and run bot
     bot = GroupBot(BOT_TOKEN, OPENAI_API_KEY)
