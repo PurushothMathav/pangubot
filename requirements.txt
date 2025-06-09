@@ -1,5 +1,1 @@
-python-telegram-bot==22.1
-openai==0.28
-pydantic>=2.0
-typing-extensions>=4.11
-asyncio
+python-telegram-bot==20.7
