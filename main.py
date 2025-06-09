@@ -718,8 +718,8 @@ Just mention me in a message for AI conversation!
 
     def run(self):
         """Run the bot"""
-        application = Application.builder().token(self.token).build()
-        
+        application = Application.builder().token(self.token).post_init(self.set_bot_commands).build()
+
         # Add command handlers
         application.add_handler(CommandHandler("start", self.start_command))
         application.add_handler(CommandHandler("help", self.help_command))
@@ -729,18 +729,16 @@ Just mention me in a message for AI conversation!
         application.add_handler(CommandHandler("mute", self.mute_user))
         application.add_handler(CommandHandler("stats", self.group_stats))
         application.add_handler(CommandHandler("welcome", self.set_welcome_message))
-        
+
         # Add message handlers
         application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, self.welcome_member))
         application.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, self.goodbye_member))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
-        
-        # Set bot commands
-        asyncio.create_task(self.set_bot_commands(application.bot))
-        
+
         # Run the bot
         print("🤖 Bot is starting...")
         application.run_polling()
+
 
     async def set_bot_commands(self, bot):
         """Set bot commands for UI"""
